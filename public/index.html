@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Vacation Portal</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            font-family: Arial;
+            background: #667eea;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .box {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #667eea;
+        }
+
+        label {
+            display: block;
+            margin-top: 12px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin: 6px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+
+        .day {
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 10px 0;
+        }
+
+        .hotel, .flight {
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 8px 0;
+        }
+
+        .chat-transcript {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+
+        .bubble {
+            padding: 8px 12px;
+            border-radius: 10px;
+            margin: 6px 0;
+            max-width: 85%;
+            white-space: pre-wrap;
+        }
+
+        .bubble.user {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+        }
+
+        .bubble.assistant {
+            background: #f1f1f1;
+            color: #333;
+        }
+
+        .chat-input-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .chat-input-row input {
+            flex: 1;
+            margin: 0;
+        }
+
+        .chat-input-row button {
+            margin-top: 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        function App() {
+            const [sessionId] = React.useState(() => crypto.randomUUID());
+            const [messages, setMessages] = React.useState([]);
+            const [input, setInput] = React.useState('');
+            const [trip, setTrip] = React.useState(null);
+            const [loading, setLoading] = React.useState(false);
+            const [error, setError] = React.useState(null);
+
+            async function handleSend() {
+                const text = input.trim();
+                if (!text) return;
+                setMessages(prev => [...prev, { role: 'user', text }]);
+                setInput('');
+                setLoading(true);
+                setError(null);
+                try {
+                    const res = await fetch('http://localhost:5000/agent/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sessionId, message: text })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                        setError(data.error || 'Request failed');
+                        setMessages(prev => [...prev, { role: 'assistant', text: `Error: ${data.error || 'Request failed'}` }]);
+                    } else {
+                        setMessages(prev => [...prev, { role: 'assistant', text: data.reply }]);
+                        if (data.trip) setTrip(data.trip);
+                    }
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            }
+
+            function handleKeyDown(e) {
+                if (e.key === 'Enter' && !loading) handleSend();
+            }
+
+            return (
+                <div className="box">
+                    <h1>✈️ Vacation Portal</h1>
+                    <p>Chat with AI to plan your trip</p>
+
+                    <div className="chat-transcript">
+                        {messages.map((m, i) => (
+                            <div key={i} className={`bubble ${m.role}`}>{m.text}</div>
+                        ))}
+                        {loading && <div className="bubble assistant">…</div>}
+                    </div>
+
+                    <div className="chat-input-row">
+                        <input type="text" value={input} placeholder="Tell me about your trip..."
+                            onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} disabled={loading} />
+                        <button onClick={handleSend} disabled={loading}>Send</button>
+                    </div>
+
+                    {error && <p style={{ color: 'red' }}>{error}</p>}
+
+                    {trip && <TripResult trip={trip} />}
+                </div>
+            );
+        }
+
+        function TripResult({ trip }) {
+            return (
+                <div>
+                    <h2>{trip.city} — {trip.num_nights} nights</h2>
+
+                    <div className="flight">
+                        <strong>Flight:</strong> {trip.flight.airline} — {trip.flight.price}
+                        <br />
+                        {trip.flight.departure} → {trip.flight.arrival} ({trip.flight.stops} stops)
+                    </div>
+
+                    <h3>Budget</h3>
+                    <ul>
+                        {Object.entries(trip.budget).map(([key, value]) => (
+                            <li key={key}>{key}: {typeof value === 'number' ? value.toFixed(2) : value}</li>
+                        ))}
+                    </ul>
+
+                    <h3>Hotels</h3>
+                    {trip.hotels.map((h, i) => (
+                        <div className="hotel" key={i}>
+                            <strong>{h.name}</strong> ({h.rating}⭐)
+                            <br />
+                            {h.address}
+                            <br />
+                            Price tier: {h.price_level != null ? '$'.repeat(h.price_level + 1) : 'N/A'}
+                        </div>
+                    ))}
+
+                    <h3>Itinerary</h3>
+                    {trip.itinerary.map((day) => (
+                        <div className="day" key={day.day}>
+                            <strong>Day {day.day} — {day.date}</strong>
+                            {day.weather && (
+                                <p>Weather: {day.weather.description}, {day.weather.temp}°C</p>
+                            )}
+                            <ul>
+                                {day.activities.map((a, i) => (
+                                    <li key={i}>[{a.category}] {a.name} ({a.rating}⭐) — {a.address}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+
+</html>
